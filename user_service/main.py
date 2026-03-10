@@ -80,3 +80,5 @@ def login_user(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
     # 3. 生成 JWT Token
     access_token = create_access_token(data={"sub": db_user.username, "user_id": db_user.id})
     return {"access_token": access_token, "token_type": "bearer", "user_id": db_user.id}
+
+# trigger build
