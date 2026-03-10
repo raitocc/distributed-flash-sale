@@ -1,0 +1,24 @@
+name: Product Service CI
+
+on:
+  push:
+    branches: [ "main" ]
+    # 只监听商品服务！
+    paths:
+      - 'product_service/**'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: Build and Push Product Service
+      uses: docker/build-push-action@v4
+      with:
+        context: ./product_service
+        push: true
+        tags: raitocc66/flash-product-service:latest
