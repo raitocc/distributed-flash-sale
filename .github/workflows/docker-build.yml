@@ -27,4 +27,4 @@ jobs:
         context: ./user_service  # 告诉 Docker 工作目录在哪里
         push: true               # 打包完直接推送到仓库
         # 用户名/项目名:标签。
-        tags: raitocc/flash-user-service:latest
+        tags: raitocc66/flash-user-service:latest
