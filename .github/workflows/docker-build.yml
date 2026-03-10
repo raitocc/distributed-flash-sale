@@ -1,11 +1,13 @@
 name: User Service CI Pipeline
 
-# 触发条件：当主分支有代码推送，且 user_service 目录下的文件有变动时才触发
+# 触发条件：当主分支有代码推送，文件有变动时才触发
 on:
   push:
     branches: [ "main" ]
     paths:
       - 'user_service/**'
+      - 'product_service/**'
+      - '.github/workflows/**'
 
 jobs:
   build-and-push:
@@ -28,3 +30,11 @@ jobs:
         push: true               # 打包完直接推送到仓库
         # 用户名/项目名:标签。
         tags: raitocc66/flash-user-service:latest
+        
+    # 商品服务
+    - name: Build and Push Product Service
+      uses: docker/build-push-action@v4
+      with:
+        context: ./product_service
+        push: true
+        tags: raitocc66/flash-product-service:latest
