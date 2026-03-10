@@ -1,0 +1,6 @@
+# user_service/.dockerignore
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/

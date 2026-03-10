@@ -1,0 +1,30 @@
+name: User Service CI Pipeline
+
+# 触发条件：当主分支有代码推送，且 user_service 目录下的文件有变动时才触发
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'user_service/**'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest # 使用 GitHub 提供的免费云端 Ubuntu 服务器
+
+    steps:
+    - name: 检出代码 (Checkout)
+      uses: actions/checkout@v3
+
+    - name: 登录 Docker Hub (Login)
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: 构建并推送镜像 (Build and Push)
+      uses: docker/build-push-action@v4
+      with:
+        context: ./user_service  # 告诉 Docker 工作目录在哪里
+        push: true               # 打包完直接推送到仓库
+        # 用户名/项目名:标签。
+        tags: raitocc/flash-user-service:latest
