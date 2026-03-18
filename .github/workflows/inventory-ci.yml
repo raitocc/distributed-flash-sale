@@ -1,0 +1,24 @@
+name: Inventory Service CI
+
+on:
+  push:
+    branches: [ "main" ]
+    # 只有库存服务代码变动，才触发这条流水线！
+    paths:
+      - 'inventory_service/**'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: Build and Push Inventory Service
+      uses: docker/build-push-action@v4
+      with:
+        context: ./inventory_service
+        push: true
+        tags: raitocc66/flash-inventory-service:latest
