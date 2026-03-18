@@ -35,7 +35,7 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(secu
 
 
 # ==========================================
-# 🛒 模块二：核心下单接口 (跨服务调用实战)
+# 🛒 1. 创建订单 (查价格 -> 锁库存 -> 生成订单)
 # ==========================================
 @app.post("/api/orders", response_model=schemas.OrderResponse)
 async def create_order(
@@ -43,40 +43,72 @@ async def create_order(
         db: Session = Depends(database.get_db),
         user_id: str = Depends(get_current_user_id)
 ):
-    # 步骤 A：拼装商品服务的 API 地址
     product_url = f"{settings.product_service_url}/api/products/{order_req.product_id}"
+    inventory_deduct_url = f"{settings.inventory_service_url}/api/inventory/{order_req.product_id}/deduct"
 
-    # 步骤 B：发起异步 HTTP 请求，去问商品服务要数据！
     async with httpx.AsyncClient() as client:
-        try:
-            # 就像你在浏览器里回车一样，给 8002 端口发个 GET 请求
-            response = await client.get(product_url)
-        except httpx.RequestError:
-            # 万一商品服务挂了，咱们得有优雅的报错
-            raise HTTPException(status_code=503, detail="商品服务开小差了，请稍后再试")
+        # 步骤 A：去问商品服务要价格
+        prod_res = await client.get(product_url)
+        if prod_res.status_code == 404:
+            raise HTTPException(status_code=404, detail="商品不存在")
+        actual_price = prod_res.json().get("flash_price")
 
-    # 步骤 C：处理商品服务的回答
-    if response.status_code == 404:
-        raise HTTPException(status_code=404, detail="您要买的商品不存在呀！")
-    elif response.status_code != 200:
-        raise HTTPException(status_code=500, detail="获取商品价格失败，请联系客服")
+        # 🌟 步骤 B：去库存服务【锁定库存】！
+        inv_res = await client.post(inventory_deduct_url, json={"quantity": 1})
+        if inv_res.status_code == 400:
+            raise HTTPException(status_code=400, detail="哎呀，手慢了，商品已经被抢光啦！")
+        elif inv_res.status_code != 200:
+            raise HTTPException(status_code=500, detail="库存服务开小差了")
 
-    # 步骤 D：提取秒杀价
-    product_data = response.json()
-    actual_price = product_data.get("flash_price")
-
-    # 步骤 E：落库生成订单！
+    # 步骤 C：库存锁成功了，安心落库！
     new_order = models.Order(
-        user_id=user_id,
-        product_id=order_req.product_id,
-        amount=actual_price,
-        status="PENDING"
+        user_id=user_id, product_id=order_req.product_id, amount=actual_price, status="PENDING"
     )
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
-
     return new_order
+
+
+# ==========================================
+# 💰 2. 模拟付款成功
+# ==========================================
+@app.post("/api/orders/{order_id}/pay")
+async def pay_order(order_id: str, db: Session = Depends(database.get_db), user_id: str = Depends(get_current_user_id)):
+    order = db.query(models.Order).filter(models.Order.id == order_id, models.Order.user_id == user_id).first()
+    if not order or order.status != "PENDING":
+        raise HTTPException(status_code=400, detail="订单不存在或状态不正确")
+
+    # 去库存服务【确认扣减】
+    confirm_url = f"{settings.inventory_service_url}/api/inventory/{order.product_id}/confirm"
+    async with httpx.AsyncClient() as client:
+        await client.post(confirm_url, json={"quantity": 1})
+
+    # 改状态
+    order.status = "PAID"
+    db.commit()
+    return {"message": "付款成功！老板大气！"}
+
+
+# ==========================================
+# ❌ 3. 模拟取消订单
+# ==========================================
+@app.post("/api/orders/{order_id}/cancel")
+async def cancel_order(order_id: str, db: Session = Depends(database.get_db),
+                       user_id: str = Depends(get_current_user_id)):
+    order = db.query(models.Order).filter(models.Order.id == order_id, models.Order.user_id == user_id).first()
+    if not order or order.status != "PENDING":
+        raise HTTPException(status_code=400, detail="订单不存在或无法取消")
+
+    # 去库存服务【释放库存】
+    release_url = f"{settings.inventory_service_url}/api/inventory/{order.product_id}/release"
+    async with httpx.AsyncClient() as client:
+        await client.post(release_url, json={"quantity": 1})
+
+    # 改状态
+    order.status = "CANCELLED"
+    db.commit()
+    return {"message": "订单已取消，库存已为您释放。"}
 
 
 if __name__ == "__main__":
