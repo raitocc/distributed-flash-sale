@@ -36,10 +36,11 @@
 
 ### Product Service (Port: 8002) *(创建操作需带 Bearer Token)*
 
-| 功能说明 | 请求方式 & 路径                      | 参数 / Body示例                                                   | 响应示例                                                                                  |
-| :------- | :----------------------------------- | :---------------------------------------------------------------- | :---------------------------------------------------------------------------------------- |
-| 创建商品 | `POST /api/products`                 | `{"name": "iPhone", "description": "Apple", "flash_price": 4999}` | `{"code": 200, "message": "商品创建成功", "data": {"id": "uuid", "name": "iPhone", ...}}` |
-| 查询列表 | `GET /api/products?skip=0&limit=100` | `-`                                                               | `{"code": 200, "message": "成功获取商品列表", "data": [{...}]}`                           |
+| 功能说明 | 请求方式 & 路径                      | 参数 / Body示例                                                   | 响应示例                                                                                                                                                                            |
+| :------- | :----------------------------------- | :---------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 创建商品 | `POST /api/products`                 | `{"name": "iPhone", "description": "Apple", "flash_price": 4999}` | `{"code": 200, "message": "商品创建成功", "data": {"id": "uuid", "name": "iPhone", ...}}`                                                                                           |
+| 查询列表 | `GET /api/products?skip=0&limit=100` | `-`                                                               | `{"code": 200, "message": "成功获取商品列表", "data": [{...}]}`                                                                                                                     |
+| 查询详细 | `GET /api/products/{product_id}`     | `-`                                                               | `{"code": 200,"message": "成功获取商品详情","data": {"id": "019cffc1ad5a71f0b8dc4b1cfa1cc3eb","name": "苹果10斤","description": "好吃","original_price": 39.9,"flash_price": 9.9}}` |
 
 ### Order Service (Port: 8003) *(所有操作均需鉴权)*
 
@@ -51,10 +52,13 @@
 
 ### Inventory Service (Port: 8004)
 
-| 功能说明 | 请求方式 & 路径           | 参数 / Body示例                              | 响应示例                                                                          |
-| :------- | :------------------------ | :------------------------------------------- | :-------------------------------------------------------------------------------- |
-| 增加库存 | `POST /api/inventory`     | `{"product_id": "uuid", "total_stock": 100}` | `{"code": 200, "message": "库存设置成功", "data": {"available_stock": 100, ...}}` |
-| 查询库存 | `GET /api/inventory/{id}` | `-`                                          | `{"code": 200, "message": "查询库存成功", "data": {"available_stock": 100, ...}}` |
+| 功能说明         | 请求方式 & 路径                    | 参数 / Body示例                              | 响应示例                                                                          |
+| :--------------- | :--------------------------------- | :------------------------------------------- | :-------------------------------------------------------------------------------- |
+| 设置/增加库存    | `POST /api/inventory`              | `{"product_id": "uuid", "total_stock": 100}` | `{"code": 200, "message": "库存设置成功", "data": {"available_stock": 100, ...}}` |
+| 查询库存         | `GET /api/inventory/{id}`          | `-`                                          | `{"code": 200, "message": "查询库存成功", "data": {"available_stock": 100, ...}}` |
+| 锁定库存(防超卖) | `POST /api/inventory/{id}/deduct`  | `{"quantity": 1}`                            | `{"code": 200, "message": "库存锁定成功！", "data": {"locked_quantity": 1}}`      |
+| 确认扣除(付款后) | `POST /api/inventory/{id}/confirm` | `{"quantity": 1}`                            | `{"code": 200, "message": "付款成功，库存真实扣减完毕！", "data": null}`          |
+| 释放库存(取消后) | `POST /api/inventory/{id}/release` | `{"quantity": 1}`                            | `{"code": 200, "message": "订单已取消，库存已重新释放回奖池！", "data": null}`    |
 
 ---
 
