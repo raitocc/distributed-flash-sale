@@ -1,0 +1,95 @@
+services:
+  # 1. 召唤 MySQL 数据库容器
+  mysql-db:
+    image: mysql:8.0
+    container_name: flash-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 95515        # 设置 root 密码
+      MYSQL_DATABASE: flash_user_db      # 启动时自动建好咱们需要的数据库！
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql           # 数据持久化，防止容器重启后数据丢失
+
+  # 2. 召唤你的用户微服务容器
+  user-service:
+    image: raitocc66/flash-user-service:latest  # <--- 换成你的用户名
+    container_name: flash-user-service
+    ports:
+      - "8001:8001"
+    restart: always
+    environment:
+      # 极其关键：用环境变量覆盖你代码里的 .env 配置！
+      # 注意这里的 host 变成了 mysql-db，它会自动解析到上面那个数据库容器的 IP！
+      DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_user_db
+      SECRET_KEY: super_secret_key_for_flash_sale
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+    depends_on:
+      - mysql-db                         # 保证数据库先启动，微服务后启动
+      
+  product-service:
+    image: raitocc66/flash-product-service:latest # 换成你的用户名
+    container_name: flash-product-service
+    ports:
+      - "8002:8002" # 映射物理机的 8002 端口
+    restart: always
+    environment:
+      # 注意：这里连的是同一个 mysql 容器，但是数据库名变成了 flash_product_db！
+      DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_product_db
+      SECRET_KEY: super_secret_key_for_flash_sale
+      ALGORITHM: HS256
+    depends_on:
+      - mysql-db
+      
+  order-service:
+    image: raitocc66/flash-order-service:latest # ⚠️ 换成你的用户名
+    container_name: flash-order-service
+    restart: always
+    ports:
+      - "8003:8003"
+    environment:
+      DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_order_db
+      SECRET_KEY: super_secret_key_for_flash_sale
+      ALGORITHM: HS256
+      # 订单服务想找商品服务，必须直接呼叫商品服务的 container_name！
+      PRODUCT_SERVICE_URL: http://flash-product-service:8002
+      INVENTORY_SERVICE_URL: http://flash-inventory-service:8004
+    depends_on:
+      - mysql-db
+      - product-service # 保证商品服务先启动
+     
+  # 库存服务
+  inventory-service:
+    image: raitocc66/flash-inventory-service:latest
+    container_name: flash-inventory-service
+    restart: always
+    ports:
+      - "8004:8004"
+    environment:
+      DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_inventory_db
+      SECRET_KEY: super_secret_key_for_flash_sale
+      ALGORITHM: HS256
+    depends_on:
+      - mysql-db
+      
+  # === 新增：API 统一网关 ===
+  nginx-gateway:
+    image: nginx:alpine
+    container_name: flash-api-gateway
+    restart: always
+    ports:
+      # 把虚拟机的 8000 端口映射给 Nginx 的 80 端口
+      - "8000:80"
+    volumes:
+      # 把刚才写的配置文件挂载进 Nginx 肚子里
+      # 注意这里的路径
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+      - inventory-service
+
+volumes:
+  db_data: # 声明数据卷
