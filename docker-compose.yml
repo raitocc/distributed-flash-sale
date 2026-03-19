@@ -15,8 +15,8 @@ services:
   user-service:
     image: raitocc66/flash-user-service:latest  # <--- 换成你的用户名
     container_name: flash-user-service
-    ports:
-      - "8001:8001"
+    # ports:
+    #   - "8001:8001"
     restart: always
     environment:
       # 极其关键：用环境变量覆盖你代码里的 .env 配置！
@@ -30,10 +30,12 @@ services:
       
   product-service:
     image: raitocc66/flash-product-service:latest # 换成你的用户名
-    container_name: flash-product-service
-    ports:
-      - "8002:8002" # 映射物理机的 8002 端口
+    # container_name: flash-product-service
+    # ports:
+    #  - "8002:8002" # 映射物理机的 8002 端口
     restart: always
+    deploy:
+      replicas: 3 # 修改实例数量改这个数字就行
     environment:
       # 注意：这里连的是同一个 mysql 容器，但是数据库名变成了 flash_product_db！
       DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_product_db
@@ -46,8 +48,8 @@ services:
     image: raitocc66/flash-order-service:latest # ⚠️ 换成你的用户名
     container_name: flash-order-service
     restart: always
-    ports:
-      - "8003:8003"
+    # ports:
+    #   - "8003:8003"
     environment:
       DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_order_db
       SECRET_KEY: super_secret_key_for_flash_sale
@@ -64,8 +66,8 @@ services:
     image: raitocc66/flash-inventory-service:latest
     container_name: flash-inventory-service
     restart: always
-    ports:
-      - "8004:8004"
+    # ports:
+    #   - "8004:8004"
     environment:
       DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_inventory_db
       SECRET_KEY: super_secret_key_for_flash_sale
