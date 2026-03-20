@@ -4,12 +4,12 @@ services:
     image: mysql:8.0
     container_name: flash-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: 95515        # 设置 root 密码
-      MYSQL_DATABASE: flash_user_db      # 启动时自动建好需要的数据库
+      MYSQL_ROOT_PASSWORD: 95515 # 设置 root 密码
+      MYSQL_DATABASE: flash_user_db # 启动时自动建好需要的数据库
     ports:
       - "3306:3306"
     volumes:
-      - db_data:/var/lib/mysql           # 数据持久化，防止容器重启后数据丢失
+      - db_data:/var/lib/mysql # 数据持久化，防止容器重启后数据丢失
 
   flash-redis:
     image: redis:alpine
@@ -21,7 +21,7 @@ services:
 
   # 2. 用户微服务容器
   user-service:
-    image: raitocc66/flash-user-service:latest  
+    image: raitocc66/flash-user-service:latest
     container_name: flash-user-service
     # ports:
     #   - "8001:8001"
@@ -34,10 +34,10 @@ services:
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 1440
     depends_on:
-      - mysql-db                         # 保证数据库先启动，微服务后启动
-      
+      - mysql-db # 保证数据库先启动，微服务后启动
+
   product-service:
-    image: raitocc66/flash-product-service:latest 
+    image: raitocc66/flash-product-service:latest
     # container_name: flash-product-service
     # ports:
     #  - "8002:8002" # 映射物理机的 8002 端口
@@ -52,9 +52,9 @@ services:
       REDIS_URL: redis://flash-redis:6379/0
     depends_on:
       - mysql-db
-      
+
   order-service:
-    image: raitocc66/flash-order-service:latest 
+    image: raitocc66/flash-order-service:latest
     container_name: flash-order-service
     restart: always
     # ports:
@@ -69,7 +69,7 @@ services:
     depends_on:
       - mysql-db
       - product-service # 保证商品服务先启动
-     
+
   # 库存服务
   inventory-service:
     image: raitocc66/flash-inventory-service:latest
@@ -83,10 +83,12 @@ services:
       ALGORITHM: HS256
     depends_on:
       - mysql-db
-      
+
   # === 新增：API 统一网关 ===
   nginx-gateway:
-    image: nginx:alpine
+    # image: nginx:alpine
+    build:
+      context: ./frontend # 告诉它 Dockerfile 在 frontend 文件夹里
     container_name: flash-api-gateway
     restart: always
     ports:
