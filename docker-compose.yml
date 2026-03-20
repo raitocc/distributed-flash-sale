@@ -64,7 +64,7 @@ services:
       SECRET_KEY: super_secret_key_for_flash_sale
       ALGORITHM: HS256
       # 订单服务想找商品服务，必须直接呼叫商品服务的 container_name！
-      PRODUCT_SERVICE_URL: http://flash-product-service:8002
+      PRODUCT_SERVICE_URL: http://product-service:8002
       INVENTORY_SERVICE_URL: http://flash-inventory-service:8004
     depends_on:
       - mysql-db
