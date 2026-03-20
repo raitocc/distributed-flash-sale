@@ -1,0 +1,34 @@
+
+> frontend@0.0.0 build
+> vite build
+
+[36mvite v8.0.0 [32mbuilding client environment for production...[36m[39m
+[2K
+transforming...鉁?1854 modules transformed.
+鉁?[39m Build failed in 716ms
+error during build:
+Build failed with 2 errors:
+
+[plugin vite:css] D:/09Projects/2026/distributed-flash-sale/frontend/src/style.css:undefined:NaN
+Error: [postcss] It looks like you're trying to use `tailwindcss` directly as a PostCSS plugin. The PostCSS plugin has moved to a separate package, so to continue using Tailwind CSS with PostCSS you'll need to install `@tailwindcss/postcss` and update your PostCSS configuration.
+    at at (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\tailwindcss\dist\lib.js:38:1643)
+    at LazyResult.runOnRoot (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:361:16)
+    at LazyResult.runAsync (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:290:26)
+    at LazyResult.async (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:192:30)
+    at LazyResult.then (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:436:17)
+[plugin vite:css] D:/09Projects/2026/distributed-flash-sale/frontend/src/App.vue?vue&type=style&index=0&lang.css:undefined:NaN
+Error: [postcss] It looks like you're trying to use `tailwindcss` directly as a PostCSS plugin. The PostCSS plugin has moved to a separate package, so to continue using Tailwind CSS with PostCSS you'll need to install `@tailwindcss/postcss` and update your PostCSS configuration.
+    at at (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\tailwindcss\dist\lib.js:38:1643)
+    at LazyResult.runOnRoot (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:361:16)
+    at LazyResult.runAsync (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:290:26)
+    at LazyResult.async (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:192:30)
+    at LazyResult.then (D:\09Projects\2026\distributed-flash-sale\frontend\node_modules\postcss\lib\lazy-result.js:436:17)
+    at aggregateBindingErrorsIntoJsError (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/rolldown/dist/shared/error-CP8smW_P.mjs:48:18)
+    at unwrapBindingResult (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/rolldown/dist/shared/error-CP8smW_P.mjs:18:128)
+    at #build (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/rolldown/dist/shared/rolldown-build-4YnQkA76.mjs:3311:34)
+    at async buildEnvironment (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/vite/dist/node/chunks/node.js:32794:64)
+    at async Object.build (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/vite/dist/node/chunks/node.js:33216:19)
+    at async Object.buildApp (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/vite/dist/node/chunks/node.js:33213:153)
+    at async CAC.<anonymous> (file:///D:/09Projects/2026/distributed-flash-sale/frontend/node_modules/vite/dist/node/cli.js:778:3) {
+  errors: [Getter/Setter]
+}
