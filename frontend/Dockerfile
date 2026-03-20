@@ -1,7 +1,7 @@
 # -----------------------------------
 # 🔨 第一阶段：编译构建阶段 (Build Stage)
 # -----------------------------------
-FROM node:18-alpine as build-stage
+FROM node:20-alpine as build-stage
 WORKDIR /app
 # 复制 package.json 并使用淘宝镜像加速安装依赖
 COPY package*.json ./
