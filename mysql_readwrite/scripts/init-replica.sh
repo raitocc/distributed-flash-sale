@@ -11,6 +11,7 @@ SLAVE_HOST="mysql-slave"
 ROOT_PASSWORD="95515"
 REPL_USER="repl"
 REPL_PASSWORD="95515-repl"
+PRODUCT_DB="flash_product_db"
 
 echo "[replica-init] 等待主库就绪..."
 until mysqladmin ping -h"${MASTER_HOST}" -uroot -p"${ROOT_PASSWORD}" --silent; do
@@ -31,6 +32,12 @@ SQL
 
 echo "[replica-init] 在从库配置复制关系..."
 mysql -h"${SLAVE_HOST}" -uroot -p"${ROOT_PASSWORD}" <<SQL
+STOP REPLICA;
+SET GLOBAL super_read_only = OFF;
+SET GLOBAL read_only = OFF;
+CREATE DATABASE IF NOT EXISTS \`${PRODUCT_DB}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+SET GLOBAL read_only = ON;
+SET GLOBAL super_read_only = ON;
 STOP REPLICA;
 RESET REPLICA ALL;
 CHANGE REPLICATION SOURCE TO

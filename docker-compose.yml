@@ -24,10 +24,20 @@ services:
       MYSQL_DATABASE: flash_product_db
     ports:
       - "3307:3306"
-    command: --default-authentication-plugin=mysql_native_password
+    command:
+      # 在 Windows + Docker Desktop 场景下，宿主机绑定进去的配置文件权限常常会被容器识别为 world-writable，
+      # MySQL 为了安全会直接忽略该配置。这样主从复制最关键的 GTID / server-id / binlog 参数就不会生效，
+      # 最终表现为“容器起来了，但复制初始化脚本报 GTID_MODE=OFF”。
+      # 把关键参数提升到启动命令里，可以绕开文件权限差异，让作业环境在 Windows 上也稳定复现。
+      - --default-authentication-plugin=mysql_native_password
+      - --server-id=101
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --gtid_mode=ON
+      - --enforce-gtid-consistency=ON
+      - --sync-binlog=1
     volumes:
       - mysql_master_data:/var/lib/mysql
-      - ./mysql_readwrite/master/conf.d/master.cnf:/etc/mysql/conf.d/master.cnf:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p95515"]
       interval: 5s
@@ -46,10 +56,19 @@ services:
       MYSQL_ROOT_HOST: "%"
     ports:
       - "3308:3306"
-    command: --default-authentication-plugin=mysql_native_password
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --server-id=102
+      - --relay-log=relay-bin
+      - --log-bin=mysql-bin
+      - --log-replica-updates=ON
+      - --binlog-format=ROW
+      - --gtid_mode=ON
+      - --enforce-gtid-consistency=ON
+      - --read-only=ON
+      - --super-read-only=ON
     volumes:
       - mysql_slave_data:/var/lib/mysql
-      - ./mysql_readwrite/slave/conf.d/slave.cnf:/etc/mysql/conf.d/slave.cnf:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p95515"]
       interval: 5s
@@ -79,6 +98,36 @@ services:
     ports:
       # 映射出来，方便查看缓存数据
       - "6379:6379"
+
+  # ==========================================
+  # Kafka：负责承接秒杀洪峰，把同步写链路改成异步消费
+  # ==========================================
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: flash-kafka
+    restart: always
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_KRAFT_CLUSTER_ID: abcdefghijklmnopqrstuv
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
 
   # 2. 用户微服务容器
   user-service:
@@ -140,9 +189,22 @@ services:
       # 订单服务想找商品服务，必须直接呼叫商品服务的 container_name！
       PRODUCT_SERVICE_URL: http://product-service:8002
       INVENTORY_SERVICE_URL: http://flash-inventory-service:8004
+      REDIS_URL: redis://flash-redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_FLASH_SALE_TOPIC: flash-sale-orders
+      KAFKA_CONSUMER_GROUP_ID: flash-sale-order-service
+      ORDER_ID_WORKER_ID: 1
     depends_on:
-      - mysql-db
-      - product-service # 保证商品服务先启动
+      mysql-db:
+        condition: service_started
+      product-service:
+        condition: service_started # 保证商品服务先启动
+      inventory-service:
+        condition: service_started
+      flash-redis:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   # 库存服务
   inventory-service:
@@ -155,8 +217,10 @@ services:
       DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_inventory_db
       SECRET_KEY: super_secret_key_for_flash_sale
       ALGORITHM: HS256
+      REDIS_URL: redis://flash-redis:6379/0
     depends_on:
       - mysql-db
+      - flash-redis
 
   # === 新增：API 统一网关 ===
   nginx-gateway:
@@ -182,3 +246,4 @@ volumes:
   db_data: # 声明数据卷
   mysql_master_data:
   mysql_slave_data:
+  kafka_data:

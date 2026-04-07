@@ -9,11 +9,7 @@ from sqlalchemy_utils import create_database, database_exists
 from config import settings
 
 
-# 为什么要同时保留读引擎和写引擎：
-# 读写分离不是“多连一个数据库”这么简单，而是要在代码层显式表达：
-# 1. 哪些操作必须走主库；
-# 2. 哪些操作可以容忍复制延迟、因此可以走从库。
-# 只有把连接入口拆开，路由规则才能真正落地。
+# 同时保留读引擎和写引擎
 write_engine = create_engine(settings.effective_write_database_url)
 read_engine = create_engine(settings.effective_read_database_url)
 
@@ -23,7 +19,7 @@ read_engine = create_engine(settings.effective_read_database_url)
 engine = write_engine
 
 # 写库负责数据库生命周期管理。
-# 为什么只在写库上 create_database：
+# 只在写库上 create_database：
 # 主从复制要求从库的数据来源只能是主库的 binlog；
 # 如果应用自己在从库上建库建表，就会破坏“主库是唯一事实源”这个前提。
 if not database_exists(write_engine.url):
@@ -36,14 +32,14 @@ Base = declarative_base()
 
 
 def is_read_write_split_enabled() -> bool:
-    # 为什么单独抽一个判断：
+    # 单独抽一个判断：
     # 读写分离是“环境能力”，不是所有场景都存在。
     # 本地 SQLite 测试、单库调试、主从 Docker 环境都需要共用同一份代码。
     return settings.effective_write_database_url != settings.effective_read_database_url
 
 
 def wait_for_read_replica_tables_ready(required_tables: Iterable[str], timeout_seconds: int = 30) -> None:
-    # 为什么在启动阶段等待从库表结构就绪：
+    # 在启动阶段等待从库表结构就绪：
     # 商品服务会在主库上 create_all，但表结构复制到从库不是瞬时完成的。
     # 如果应用一启动就立刻接受读请求，而从库还没同步到表结构，第一次读就可能直接报表不存在。
     # 这里主动等待，是把“复制尚未完成”的短暂窗口尽量收敛到服务启动期，而不是暴露给用户请求期。

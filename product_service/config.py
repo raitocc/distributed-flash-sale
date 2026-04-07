@@ -4,7 +4,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # 保留历史的 DATABASE_URL 作为兼容兜底：
-    # 这样旧的测试脚本、单库运行方式、以及还没迁移完的环境变量仍然可以继续工作。
     # 真正启用读写分离时，会优先读取 WRITE_DATABASE_URL / READ_DATABASE_URL。
     database_url: str = ""
     # 写库连接串：创建商品等写操作必须命中主库，否则无法保证数据源权威性。

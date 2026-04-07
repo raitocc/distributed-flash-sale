@@ -2,9 +2,9 @@
 
 ## 项目简介
 
-这是一个基于 `FastAPI + MySQL + Redis + Nginx + Vue 3 + Docker Compose` 实现的分布式秒杀课程作业项目。系统按业务拆分为用户、商品、订单、库存四个微服务，通过 HTTP REST 接口通信，并在统一入口层引入 Nginx，实现容器化部署、反向代理、负载均衡、动静分离与商品详情缓存。
+这是一个基于 `FastAPI + MySQL + Redis + Kafka + Nginx + Vue 3 + Docker Compose` 实现的分布式秒杀课程作业项目。系统按业务拆分为用户、商品、订单、库存四个微服务，通过 HTTP REST 接口通信，并在统一入口层引入 Nginx，实现容器化部署、反向代理、负载均衡、动静分离、商品详情缓存，以及基于消息队列的异步秒杀下单。
 
-当前项目已经完成基础业务接口，以及课程要求中的容器环境、负载均衡、JMeter 压测、动静分离和 Redis 缓存等内容，并已在商品详情缓存中加入针对缓存穿透、缓存击穿、缓存雪崩的基础防护策略。
+当前项目已经完成基础业务接口，以及课程要求中的容器环境、负载均衡、JMeter 压测、动静分离、Redis 缓存、缓存治理、商品服务读写分离，以及“Redis 预扣库存 + Kafka 异步创建订单”的秒杀链路。
 
 ## 当前完成情况
 
@@ -22,6 +22,12 @@
 - [x] 缓存穿透治理
 - [x] 缓存击穿治理
 - [x] 缓存雪崩治理
+- [x] MySQL 读写分离示例
+- [x] Redis 缓存库存
+- [x] Kafka 异步秒杀下单
+- [x] 雪花算法订单 ID
+- [x] 同一用户同一商品幂等下单
+- [x] 秒杀库存最终一致性补偿
 
 ## 系统架构
 
@@ -38,6 +44,9 @@ graph LR
     F --> H
     G --> H
     E --> I[(Redis)]
+    F --> I
+    G --> I
+    F --> J[(Kafka)]
     F --> E
     F --> G
 ```
@@ -47,6 +56,7 @@ graph LR
 - 后端：`FastAPI`、`SQLAlchemy`、`httpx`
 - 数据库：`MySQL 8`
 - 缓存：`Redis`
+- 消息队列：`Kafka`
 - 网关：`Nginx`
 - 前端：`Vue 3`、`Vite`、`Tailwind CSS`
 - 容器化：`Docker`、`Docker Compose`
@@ -58,17 +68,21 @@ graph LR
 | --- | --- | --- |
 | `user_service` | 用户注册、登录、鉴权 | `8001` |
 | `product_service` | 商品管理、商品详情、Redis 缓存 | `8002` |
-| `order_service` | 下单、支付、取消订单 | `8003` |
-| `inventory_service` | 库存设置、查询、锁定、确认、释放 | `8004` |
+| `order_service` | 秒杀下单、异步建单、支付、取消、按用户/订单查询 | `8003` |
+| `inventory_service` | 库存设置、查询、传统锁库存、秒杀库存最终扣减/回补 | `8004` |
 | `mysql-db` | 持久化存储 | `3306` |
 | `flash-redis` | 商品详情缓存 | `6379` |
+| `kafka` | 秒杀异步削峰 | `9092` |
 | `nginx-gateway` | 静态资源分发、API 网关、负载均衡入口 | `80` |
 
 宿主机默认访问入口：
 
 - 前端与统一网关：`http://localhost:8000`
 - MySQL：`localhost:3306`
+- 商品主库：`localhost:3307`
+- 商品从库：`localhost:3308`
 - Redis：`localhost:6379`
+- Kafka：`localhost:9094`
 
 ## 目录结构
 
@@ -94,10 +108,13 @@ distributed-flash-sale/
 
 - 用户：`/api/users/register`、`/api/users/login`
 - 商品：`POST /api/products`、`GET /api/products`、`GET /api/products/{product_id}`
-- 订单：`POST /api/orders`、`POST /api/orders/{order_id}/pay`、`POST /api/orders/{order_id}/cancel`
-- 库存：`POST /api/inventory`、`GET /api/inventory/{product_id}`、`POST /api/inventory/{product_id}/deduct`、`POST /api/inventory/{product_id}/confirm`、`POST /api/inventory/{product_id}/release`
+- 订单：`POST /api/orders`、`GET /api/orders/{order_id}`、`GET /api/orders/user/{user_id}`、`POST /api/orders/{order_id}/pay`、`POST /api/orders/{order_id}/cancel`
+- 库存：`POST /api/inventory`、`GET /api/inventory/{product_id}`、`POST /api/inventory/{product_id}/flash-sale/preload`、`POST /api/inventory/{product_id}/flash-sale/commit`、`POST /api/inventory/{product_id}/flash-sale/restore`、`POST /api/inventory/{product_id}/deduct`、`POST /api/inventory/{product_id}/confirm`、`POST /api/inventory/{product_id}/release`
 
-订单流程采用了“先锁库存，再支付确认/取消释放”的思路，适合秒杀场景下的基础演示。
+当前订单服务同时保留了两条链路：
+
+- 基础演示链路：先锁库存，再支付确认/取消释放
+- 秒杀链路：Redis 预扣库存，Kafka 异步创建订单，库存服务最终扣减数据库库存
 
 ### 2. 容器环境
 
@@ -110,7 +127,10 @@ distributed-flash-sale/
 当前 Compose 编排包含：
 
 - `mysql-db`
+- `mysql-master`
+- `mysql-slave`
 - `flash-redis`
+- `kafka`
 - `user-service`
 - `product-service`
 - `order-service`
@@ -165,6 +185,25 @@ distributed-flash-sale/
 - 缓存击穿：互斥锁 + 等待缓存回填
 - 缓存雪崩：缓存 TTL 随机抖动
 
+### 6. 消息队列秒杀下单
+
+项目已经实现基于 `Redis + Kafka` 的异步秒杀链路，核心目标是把高并发抢购流量挡在缓存和队列层，而不是直接把数据库打满。
+
+实现要点如下：
+
+- 秒杀入口先在 Redis 中原子校验库存和重复下单，再做库存预扣
+- 入口线程生成雪花订单 ID，把订单事件投递到 Kafka 后立即返回“排队中”
+- 订单服务后台消费者异步查询商品价格、创建订单、调用库存服务做最终扣减
+- 同一用户同一商品通过 Redis 用户标记和数据库唯一约束双重兜底
+- 消费失败时自动补偿 Redis 库存，避免“库存少了但订单没创建”的假死状态
+- 取消订单时，库存服务会同时回补数据库库存和 Redis 可售库存
+
+专项文档：
+
+- [缓存问题治理说明.md](./缓存问题治理说明.md)
+- [读写分离实现说明.md](./读写分离实现说明.md)
+- [消息队列秒杀实现说明.md](./消息队列秒杀实现说明.md)
+
 ## JMeter 压测说明
 
 项目已使用 JMeter 对静态资源和后端接口进行压力测试，主要观察以下内容：
@@ -207,6 +246,13 @@ distributed-flash-sale/
 docker compose up -d --build
 ```
 
+如果你之前已经启动过旧版本，且本次要验证新的订单/库存表结构，建议先做一次干净重建：
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
 如果需要验证商品服务多实例负载均衡：
 
 ```bash
@@ -221,8 +267,16 @@ docker compose up -d --build --scale product-service=3
 - 订单接口：`http://localhost:8000/api/orders`
 - 库存接口：`http://localhost:8000/api/inventory`
 
+## 验证建议
+
+- 先通过 `POST /api/inventory` 为商品初始化库存，库存服务会同步预热 Redis 秒杀库存
+- 调用 `POST /api/orders` 发起秒杀，请求会先返回排队中的订单 ID
+- 立刻调用 `GET /api/orders/{order_id}`，可以观察订单从 `QUEUED` / `PROCESSING` 过渡到 `PENDING_PAYMENT`
+- 查看 `docker compose logs -f order-service`，可以看到 Kafka 消费与异步建单日志
+- 查看 `docker compose logs -f inventory-service`，可以确认数据库最终扣减和取消回补是否发生
+
 ## 可补充的后续工作
 
 - 为负载均衡实验补充更完整的 JMeter 测试报告和截图
-- 为热点商品加入更稳健的并发控制与降级机制
+- 为热点商品加入更稳健的限流、熔断与降级机制
 - 进一步完善接口文档与自动化测试

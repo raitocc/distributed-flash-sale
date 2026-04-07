@@ -261,8 +261,6 @@ def query_product_from_db(product_id: str, db: Session) -> Optional[models.Produ
 
 
 def log_db_routing(db: Session, operation: str) -> None:
-    # 为什么要在代码里显式打印命中的数据库角色：
-    # 课程作业里“读写分离已经做了”远远不够，真正能打动老师的是你能证明：
     # 1. 写请求确实打到了主库；
     # 2. 读请求确实打到了从库；
     # 3. 主从角色不是只存在于 docker-compose 里，而是落实到了运行时。
@@ -303,7 +301,7 @@ def create_product(
     db: Session = Depends(database.get_write_db),
     user_id: str = Depends(get_current_user_id),
 ):
-    # 为什么创建商品必须强制走写库：
+    # 创建商品必须强制走写库：
     # 主从复制环境中，从库默认是只读的；即便强行放开，也会破坏主库是唯一事实源的原则。
     # 所以凡是会改变数据的请求，都应明确依赖写库连接，而不是使用模糊的默认连接。
     log_db_routing(db, "create_product")

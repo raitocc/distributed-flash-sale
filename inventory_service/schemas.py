@@ -18,3 +18,14 @@ class InventoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class FlashSaleInventoryRequest(BaseModel):
+    order_id: str
+    user_id: str
+    quantity: int = 1
+
+
+class FlashSaleInventorySyncResponse(BaseModel):
+    product_id: str
+    redis_stock: int

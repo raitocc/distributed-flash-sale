@@ -25,7 +25,7 @@ const handleBuy = async () => {
     isBuying.value = false
     if (result.success) {
       purchaseState.value = 'success'
-      purchaseMessage.value = '抢下成功！'
+      purchaseMessage.value = result.message || '抢购请求已提交'
     } else {
       purchaseState.value = 'fail'
       purchaseMessage.value = result.message || '已被秒光'

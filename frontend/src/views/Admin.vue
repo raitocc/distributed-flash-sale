@@ -2,13 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '../api/request'
-import { PlusCircle, Save, Layers, PackagePlus } from 'lucide-vue-next'
+import { PlusCircle, Save, Layers, PackagePlus, TestTubeDiagonal } from 'lucide-vue-next'
 
 const router = useRouter()
 const products = ref([])
 const newProduct = ref({ name: '', description: '', original_price: 1999, flash_price: 999 })
 const inventoryForm = ref({ product_id: '', total_stock: 100 })
 const isLoading = ref(false)
+const isSeedingDemo = ref(false)
 const username = ref(localStorage.getItem('username'))
 
 const handleLogout = () => {
@@ -52,11 +53,52 @@ const handleAddProduct = async () => {
     const res = await request.post('/api/products', newProduct.value)
     if (res.code === 200) {
       alert('商品发布成功')
+      inventoryForm.value.product_id = res.data.id
       newProduct.value = { name: '', description: '', original_price: 1999, flash_price: 999 }
       await fetchAdminData()
     }
   } catch (e) {
     alert('发布失败: ' + e.message)
+  }
+}
+
+const handleSeedDemoData = async () => {
+  if (!localStorage.getItem('access_token')) {
+    alert('权限不足：需登录后方可操作。')
+    return router.push('/login')
+  }
+
+  isSeedingDemo.value = true
+  try {
+    // 为什么把演示数据准备做成前端按钮：
+    // 课程项目里最费时间的通常不是功能本身，而是“每次重启环境后还要重新造一遍测试数据”。
+    // 这个按钮的目的不是替代正式初始化脚本，而是让你在答辩或联调时能快速得到一套可秒杀的数据样本。
+    const demoProducts = [
+      { name: '秒杀测试手机', description: '用于验证 Redis 预扣库存、Kafka 异步下单与支付链路。', original_price: 4999, flash_price: 2999, total_stock: 20 },
+      { name: '秒杀测试耳机', description: '用于验证同一用户重复秒杀的幂等拦截效果。', original_price: 1299, flash_price: 699, total_stock: 12 },
+      { name: '秒杀测试平板', description: '用于验证取消订单后的库存回补与状态刷新。', original_price: 3999, flash_price: 2499, total_stock: 8 }
+    ]
+
+    for (const item of demoProducts) {
+      const productRes = await request.post('/api/products', {
+        name: item.name,
+        description: item.description,
+        original_price: item.original_price,
+        flash_price: item.flash_price
+      })
+
+      await request.post('/api/inventory', {
+        product_id: productRes.data.id,
+        total_stock: item.total_stock
+      })
+    }
+
+    alert('演示商品与库存已准备完成，现在可以回首页测试秒杀链路。')
+    await fetchAdminData()
+  } catch (e) {
+    alert('准备演示数据失败: ' + e.message)
+  } finally {
+    isSeedingDemo.value = false
   }
 }
 
@@ -97,6 +139,17 @@ onMounted(() => {
       <div class="mb-12">
         <h1 class="text-3xl font-bold tracking-tight text-apple-text">秒杀控制台</h1>
         <p class="text-sm text-apple-subtext mt-1">全局管控分布式的商品货架与底层库存资源池。</p>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            @click="handleSeedDemoData"
+            :disabled="isSeedingDemo"
+            class="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-black text-white text-sm font-medium disabled:opacity-50"
+          >
+            <TestTubeDiagonal class="w-4 h-4" />
+            {{ isSeedingDemo ? '准备测试数据中...' : '一键准备演示商品与库存' }}
+          </button>
+          <p class="self-center text-xs text-apple-subtext">如果只是想快速验证前端秒杀链路，可以直接点这个按钮。</p>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
