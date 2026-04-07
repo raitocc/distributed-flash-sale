@@ -1,0 +1,16 @@
+services:
+  user-service:
+    build:
+      context: ./user_service
+
+  product-service:
+    build:
+      context: ./product_service
+
+  order-service:
+    build:
+      context: ./order_service
+
+  inventory-service:
+    build:
+      context: ./inventory_service

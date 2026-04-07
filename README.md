@@ -1,118 +1,228 @@
-# 分布式秒杀微服务架构与 API 规范指南
+# 分布式秒杀系统作业项目
 
-## 项目概述
-本项目包含四大微服务 (`User`, `Product`, `Order`, `Inventory`)，支撑完整的秒杀/购物下单流程。每个服务均拥有自己独立的数据库，服务间通过无状态的 HTTP REST API 进行通信。本文档旨在详细描述最新的 API 响应规范、订单流程时序图、系统核心行为分析以及保障系统最终一致性的机制设计（如幂等性）。
+## 项目简介
 
----
+这是一个基于 `FastAPI + MySQL + Redis + Nginx + Vue 3 + Docker Compose` 实现的分布式秒杀课程作业项目。系统按业务拆分为用户、商品、订单、库存四个微服务，通过 HTTP REST 接口通信，并在统一入口层引入 Nginx，实现容器化部署、反向代理、负载均衡、动静分离与商品详情缓存。
 
-## 统一响应规范
-为提升前后端协同及错误追踪效率，所有接口返回值（含正常与异常）现已重构为如下统一 JSON 结构：
+当前项目已经完成基础业务接口，以及课程要求中的容器环境、负载均衡、JMeter 压测、动静分离和 Redis 缓存等内容，并已在商品详情缓存中加入针对缓存穿透、缓存击穿、缓存雪崩的基础防护策略。
+
+## 当前完成情况
+
+- [x] 用户服务：注册、登录、JWT 鉴权
+- [x] 商品服务：商品创建、商品列表、商品详情
+- [x] 库存服务：库存设置、库存查询、库存锁定、库存确认、库存释放
+- [x] 订单服务：创建订单、支付订单、取消订单
+- [x] 统一响应结构与基础异常处理
+- [x] Dockerfile 与 `docker-compose.yml` 容器化部署
+- [x] Nginx 统一网关与反向代理
+- [x] 负载均衡实验
+- [x] 前端静态资源部署与动静分离
+- [x] JMeter 对静态资源和后端接口进行压力测试
+- [x] Redis 商品详情页缓存
+- [x] 缓存穿透治理
+- [x] 缓存击穿治理
+- [x] 缓存雪崩治理
+
+## 系统架构
+
+```mermaid
+graph LR
+    A[Client / Browser / JMeter] --> B[Nginx Gateway]
+    B --> C[Vue Frontend Static Files]
+    B --> D[User Service]
+    B --> E[Product Service]
+    B --> F[Order Service]
+    B --> G[Inventory Service]
+    D --> H[(MySQL)]
+    E --> H
+    F --> H
+    G --> H
+    E --> I[(Redis)]
+    F --> E
+    F --> G
+```
+
+## 技术栈
+
+- 后端：`FastAPI`、`SQLAlchemy`、`httpx`
+- 数据库：`MySQL 8`
+- 缓存：`Redis`
+- 网关：`Nginx`
+- 前端：`Vue 3`、`Vite`、`Tailwind CSS`
+- 容器化：`Docker`、`Docker Compose`
+- 压测：`JMeter`
+
+## 服务划分
+
+| 服务 | 说明 | 容器内端口 |
+| --- | --- | --- |
+| `user_service` | 用户注册、登录、鉴权 | `8001` |
+| `product_service` | 商品管理、商品详情、Redis 缓存 | `8002` |
+| `order_service` | 下单、支付、取消订单 | `8003` |
+| `inventory_service` | 库存设置、查询、锁定、确认、释放 | `8004` |
+| `mysql-db` | 持久化存储 | `3306` |
+| `flash-redis` | 商品详情缓存 | `6379` |
+| `nginx-gateway` | 静态资源分发、API 网关、负载均衡入口 | `80` |
+
+宿主机默认访问入口：
+
+- 前端与统一网关：`http://localhost:8000`
+- MySQL：`localhost:3306`
+- Redis：`localhost:6379`
+
+## 目录结构
+
+```text
+distributed-flash-sale/
+├── docker-compose.yml
+├── nginx/
+│   └── nginx.conf
+├── frontend/
+├── user_service/
+├── product_service/
+├── order_service/
+├── inventory_service/
+├── integration_test.py
+└── README.md
+```
+
+## 已实现的核心内容
+
+### 1. 基础业务能力
+
+项目目前已经完成以下基础接口：
+
+- 用户：`/api/users/register`、`/api/users/login`
+- 商品：`POST /api/products`、`GET /api/products`、`GET /api/products/{product_id}`
+- 订单：`POST /api/orders`、`POST /api/orders/{order_id}/pay`、`POST /api/orders/{order_id}/cancel`
+- 库存：`POST /api/inventory`、`GET /api/inventory/{product_id}`、`POST /api/inventory/{product_id}/deduct`、`POST /api/inventory/{product_id}/confirm`、`POST /api/inventory/{product_id}/release`
+
+订单流程采用了“先锁库存，再支付确认/取消释放”的思路，适合秒杀场景下的基础演示。
+
+### 2. 容器环境
+
+项目已经配置好多服务的 Docker 相关文件：
+
+- 每个后端服务目录下都提供了 `Dockerfile`
+- `frontend/Dockerfile` 使用多阶段构建，先打包 Vue 前端，再交给 Nginx 提供静态资源
+- 根目录 `docker-compose.yml` 用于统一拉起 MySQL、Redis、后端服务和 Nginx 网关
+
+当前 Compose 编排包含：
+
+- `mysql-db`
+- `flash-redis`
+- `user-service`
+- `product-service`
+- `order-service`
+- `inventory-service`
+- `nginx-gateway`
+
+说明：
+
+- MySQL 容器启动时会自动创建 `flash_user_db`
+- `product_service`、`order_service`、`inventory_service` 启动时会自动检查并创建各自数据库
+
+### 3. 负载均衡
+
+项目通过 Nginx 的 `upstream` 实现反向代理与负载均衡。当前仓库中已经在 `nginx/nginx.conf` 中配置了多个服务的 upstream 池，并将 `/api/*` 请求转发到后端服务。
+
+其中，`product-service` 已作为负载均衡实验对象进行多实例配置预留。默认可采用 Nginx 轮询策略；如需做课程实验对比，也可以在 `upstream` 中切换为以下策略：
+
+- 默认轮询 `round robin`
+- 权重轮询 `weight`
+- 最少连接 `least_conn`
+- IP 绑定 `ip_hash`
+
+### 4. 动静分离
+
+项目已经完成动静分离配置：
+
+- `location /`：由 Nginx 直接返回前端静态资源
+- `location /api/users`：转发到用户服务
+- `location /api/products`：转发到商品服务
+- `location /api/orders`：转发到订单服务
+- `location /api/inventory`：转发到库存服务
+
+### 5. 分布式缓存
+
+项目已经在商品服务中引入 Redis，对商品详情接口做了基础缓存与防护治理。
+
+当前缓存逻辑位于 `product_service/api/routes.py`：
+
+- 查询商品详情时，优先读取 Redis
+- 缓存命中则直接返回
+- 缓存未命中时查询 MySQL
+- 查询到数据后写回 Redis
+- 缓存 Key 格式：`product:{product_id}`
+- 正常商品缓存采用随机过期时间，避免大量 Key 同时失效
+- 不存在商品会写入空值缓存，减少恶意不存在请求反复打库
+- 商品 ID 会同步到 Redis 索引集合，优先过滤明显非法请求
+- 缓存重建时使用 Redis 分布式锁，避免热点 Key 失效瞬间大量并发同时回源
+
+当前实现对应关系：
+
+- 缓存穿透：商品 ID 索引 + 空值缓存
+- 缓存击穿：互斥锁 + 等待缓存回填
+- 缓存雪崩：缓存 TTL 随机抖动
+
+## JMeter 压测说明
+
+项目已使用 JMeter 对静态资源和后端接口进行压力测试，主要观察以下内容：
+
+- 静态资源访问响应时间
+- 后端接口响应时间
+- 吞吐量与错误率
+- 后端实例的请求分发情况是否大致均衡
+
+建议压测目标：
+
+- 静态资源：`GET http://localhost:8000/`
+- 商品列表：`GET http://localhost:8000/api/products`
+- 商品详情：`GET http://localhost:8000/api/products/{product_id}`
+
+观察方式：
+
+- 查看 JMeter 的平均响应时间、吞吐量、错误率
+- 查看 Nginx 与后端日志，确认请求是否被分发到多个实例
+
+## 统一响应格式
+
+项目中的接口统一返回如下结构：
+
 ```json
 {
-  "code": 200,          // 业务状态码
-  "message": "success", // 业务提示信息
-  "data": { ... }       // 实际有效载荷，错误时通常为 null
+  "code": 200,
+  "message": "success",
+  "data": {}
 }
 ```
 
-**业务状态码对照表：**
-- `200`: 成功处理。
-- `400`: 业务校验失败或常规错误 (例如库存不足、参数有误)。
-- `401`: 未授权 (Token 无效或已过期)。
-- `404`: 请求的资源不存在。
-- `422`: 表单格式/请求体验证异常。
-- `500`: 系统内部处理异常或跨微服务通信熔断。
+## 快速启动
 
----
+使用 Docker Compose
 
-## 核心接口清单与示例
+推荐直接在项目根目录执行：
 
-### User Service (Port: 8001)
-
-| 功能说明 | 请求方式 & 路径            | 参数 / Body示例                          | 响应示例                                                                                                             |
-| :------- | :------------------------- | :--------------------------------------- | :------------------------------------------------------------------------------------------------------------------- |
-| 用户注册 | `POST /api/users/register` | `{"username": "bob", "password": "123"}` | `{"code": 200, "message": "注册成功", "data": {"id": "uuid", "username": "bob"}}`                                    |
-| 用户登录 | `POST /api/users/login`    | `{"username": "bob", "password": "123"}` | `{"code": 200, "message": "登录成功", "data": {"access_token": "ey...", "token_type": "bearer", "user_id": "uuid"}}` |
-
-### Product Service (Port: 8002) *(创建操作需带 Bearer Token)*
-
-| 功能说明 | 请求方式 & 路径                      | 参数 / Body示例                                                   | 响应示例                                                                                                                                                                            |
-| :------- | :----------------------------------- | :---------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 创建商品 | `POST /api/products`                 | `{"name": "iPhone", "description": "Apple", "flash_price": 4999}` | `{"code": 200, "message": "商品创建成功", "data": {"id": "uuid", "name": "iPhone", ...}}`                                                                                           |
-| 查询列表 | `GET /api/products?skip=0&limit=100` | `-`                                                               | `{"code": 200, "message": "成功获取商品列表", "data": [{...}]}`                                                                                                                     |
-| 查询详细 | `GET /api/products/{product_id}`     | `-`                                                               | `{"code": 200,"message": "成功获取商品详情","data": {"id": "019cffc1ad5a71f0b8dc4b1cfa1cc3eb","name": "苹果10斤","description": "好吃","original_price": 39.9,"flash_price": 9.9}}` |
-
-### Order Service (Port: 8003) *(所有操作均需鉴权)*
-
-| 功能说明 | 请求方式 & 路径                | 参数 / Body示例               | 响应示例                                                                                         |
-| :------- | :----------------------------- | :---------------------------- | :----------------------------------------------------------------------------------------------- |
-| 创建订单 | `POST /api/orders`             | `{"product_id": "prod-uuid"}` | `{"code": 200, "message": "订单创建成功", "data": {"id": "ord-uuid", "status": "PENDING", ...}}` |
-| 支付订单 | `POST /api/orders/{id}/pay`    | `-`                           | `{"code": 200, "message": "付款成功！老板大气！", "data": {"order_id": "...","status":"PAID"}}`  |
-| 取消订单 | `POST /api/orders/{id}/cancel` | `-`                           | `{"code": 200, "message": "订单已取消...", "data": {"order_id": "...","status":"CANCELLED"}}`    |
-
-### Inventory Service (Port: 8004)
-
-| 功能说明         | 请求方式 & 路径                    | 参数 / Body示例                              | 响应示例                                                                          |
-| :--------------- | :--------------------------------- | :------------------------------------------- | :-------------------------------------------------------------------------------- |
-| 设置/增加库存    | `POST /api/inventory`              | `{"product_id": "uuid", "total_stock": 100}` | `{"code": 200, "message": "库存设置成功", "data": {"available_stock": 100, ...}}` |
-| 查询库存         | `GET /api/inventory/{id}`          | `-`                                          | `{"code": 200, "message": "查询库存成功", "data": {"available_stock": 100, ...}}` |
-| 锁定库存(防超卖) | `POST /api/inventory/{id}/deduct`  | `{"quantity": 1}`                            | `{"code": 200, "message": "库存锁定成功！", "data": {"locked_quantity": 1}}`      |
-| 确认扣除(付款后) | `POST /api/inventory/{id}/confirm` | `{"quantity": 1}`                            | `{"code": 200, "message": "付款成功，库存真实扣减完毕！", "data": null}`          |
-| 释放库存(取消后) | `POST /api/inventory/{id}/release` | `{"quantity": 1}`                            | `{"code": 200, "message": "订单已取消，库存已重新释放回奖池！", "data": null}`    |
-
----
-
-## 下单链路与库存交互时序流转
-
-`create_order` 是整个秒杀系统中最核心的方法。该操作横跨了 Order、Product、Inventory 多个服务，采用了 **两阶段** 的库存概念（锁定库存 + 真实扣减/释放），以防止恶意锁库存但不买的情况。
-
-### 时序图 (Mermaid)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant Order as Order Server (8003)
-    participant Product as Product Server (8002)
-    participant Inventory as Inventory Server (8004)
-
-    Client->>Order: POST /api/orders {product_id}
-    Order->>Product: GET /api/products/{product_id} (查询商品与价格)
-    
-    alt 商品不存在或服务掉线
-        Product-->>Order: 404 / 500 Error
-        Order-->>Client: 404/500 {"code": 404, "message": "商品不存在"} (中断)
-    else 查询成功
-        Product-->>Order: 200 OK (含 flash_price)
-    end
-    
-    Order->>Inventory: POST /api/inventory/{product_id}/deduct (锁定库存)
-    note right of Inventory: available = total - locked<br/>if available >= 1: locked += 1
-    
-    alt 库存不足 (手慢了)
-        Inventory-->>Order: 400 Bad Request
-        Order-->>Client: 400 {"code": 400, "message": "手慢了，库存不足啦！"}
-    else 库存锁定成功
-        Inventory-->>Order: 200 OK
-        note over Order: db.add(new_order)<br/>status = PENDING
-        Order-->>Client: 200 OK {"code": 200, "data": {"id": "ORDER_ID", "status": "PENDING"}}
-    end
+```bash
+docker compose up -d --build
 ```
 
-### `create_order` 内部状态流转分析
-1. **询查价格**：网关首先验证 Token 获得 `user_id`。订单服务无该商品信息，立即向 Product 发请求，阻截假商品的情况；若下游挂掉，本级捕捉到并上抛500报错。
-2. **防超卖的库存判定（TCC架构思维中的 Try）**：订单未落库前，先向 Inventory 申请库存锁（locked_stock 增加）。这是一个悲观锁概念的延伸，我们保证在此次操作没有完成之前，其他并发请求扣去可用量。若此处返回 `400`，说明真实可卖件数不足。
-3. **本地事务（订单入库）**：库存成功上锁后，订单信息落地到当前数据库，状态设置为 `PENDING`。此时操作完毕，向客户抛出“下单成功”喜讯。
-   *（注：若此步数据库宕机导致入库失败，会残留下库存的死锁孤儿记录。实际工业级往往需借助消息队列、补偿定时任务对其进行清理）*
+如果需要验证商品服务多实例负载均衡：
 
-## 幂等性与副作用设计策略
+```bash
+docker compose up -d --build --scale product-service=3
+```
 
-基于微服务间的网状网络调用，请求极易因网络抖动发生超时（Timeout）。重试机制可能会让部分接口被多次激活，因此部分接口需具备 **幂等性 (Idempotency)**。
+启动完成后可访问：
 
-### 1. 副作用操作：扣库存（`/deduct`）
-- **非幂等现状**：在目前的演示版本中，如果同一个订单创建被重复调用 `/deduct`，库存会真实地被加锁多次。这属于典型的非幂等接口。
-- **改进方式**：为了实现扣库存的幂等，未来需要在 `/deduct` 的请求体中传入唯一防重放的凭证（如 `uuidv7` 生成的全局 `request_id` 或者最终落地订单的 `order_id` 前置生成）。由于订单号目前是在最后一步本地 MySQL 自增生成，架构演进时可引入 SnowFlake 或 UUID 作为业务键提前预占。
+- 前端首页：`http://localhost:8000`
+- 用户接口：`http://localhost:8000/api/users`
+- 商品接口：`http://localhost:8000/api/products`
+- 订单接口：`http://localhost:8000/api/orders`
+- 库存接口：`http://localhost:8000/api/inventory`
 
-### 2. 幂等操作的典范范式：支付订单与取消订单
-- `/pay` 与 `/cancel` 目前是幂等的。虽然其依赖远程调用，但基于数据库记录的状态判断 `if order.status != "PENDING"`，能够拦截掉已经付款或者取消的同一号单的二次重发。
-- **库存服务的释放与确认逻辑补偿**：Inventory 的 `/api/inventory/{id}/confirm` 与 `/release` 目前单纯依赖了 `locked -= 1` 等代数运算，它本身并不是绝对防重的。如果在工业场景下重试，则可能会把 `locked_stock` 扣成负数。因此应当在 Inventory 表加设一层交易水单明细表 (Transaction Log)，一旦某笔特定的单号被消费处理完毕，拒绝相同的确认与释放请求。这是应对多组件分布式事务“副作型蔓延”的重要约束机制。
+## 可补充的后续工作
+
+- 为负载均衡实验补充更完整的 JMeter 测试报告和截图
+- 为热点商品加入更稳健的并发控制与降级机制
+- 进一步完善接口文档与自动化测试
