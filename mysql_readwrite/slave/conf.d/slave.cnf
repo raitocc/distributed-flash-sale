@@ -1,0 +1,22 @@
+[mysqld]
+# 从库必须使用不同于主库的 server-id，否则复制拓扑无法成立。
+server-id = 102
+
+# 从库仍然需要自己的 relay log 来暂存主库传来的复制事件。
+relay_log = relay-bin
+log_bin = mysql-bin
+log_replica_updates = ON
+binlog_format = ROW
+
+# 开启 GTID，和主库保持同一套复制协议。
+gtid_mode = ON
+enforce_gtid_consistency = ON
+
+# 为什么从库要打开只读：
+# 读写分离的核心前提是“应用不应该直接往从库写数据”，否则主从数据会出现分叉。
+# super_read_only 比 read_only 更严格，连高权限会话也会被约束，更适合作业演示环境。
+read_only = ON
+super_read_only = ON
+
+# TODO:
+# 如果后续要演示级联复制、双主或多从拓扑，这里的只读策略和 binlog 策略都需要重新审视。

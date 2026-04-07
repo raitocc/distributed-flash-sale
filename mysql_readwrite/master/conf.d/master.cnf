@@ -1,0 +1,21 @@
+[mysqld]
+# 为什么主库必须有唯一 server-id：
+# MySQL 主从复制依赖 server-id 区分不同实例，如果主从使用相同编号，
+# 复制链路无法正确识别事件来源，轻则复制报错，重则出现循环复制风险。
+server-id = 101
+
+# 为什么主库必须打开 binlog：
+# 从库复制的本质是“持续消费主库的二进制日志”，没有 binlog 就没有可复制的数据流。
+log_bin = mysql-bin
+binlog_format = ROW
+
+# 为什么启用 GTID：
+# 课程作业里如果使用“文件名 + 偏移量”去配置主从，更容易在重建环境时踩坑。
+# GTID 让复制位点以事务 ID 表达，可维护性更高，也更容易解释“从库从哪里开始追主库”。
+gtid_mode = ON
+enforce_gtid_consistency = ON
+
+# WARNING:
+# sync_binlog=1 会让主库刷盘更严格，性能略降，但能降低宕机时 binlog 丢失风险。
+# 这里更偏向教学可解释性和稳定性，而不是追求极限吞吐。
+sync_binlog = 1

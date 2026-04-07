@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from redis.exceptions import RedisError
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import List, Optional, Tuple
 
@@ -259,13 +260,53 @@ def query_product_from_db(product_id: str, db: Session) -> Optional[models.Produ
     return db.query(models.Product).filter(models.Product.id == product_id).first()
 
 
+def log_db_routing(db: Session, operation: str) -> None:
+    # 为什么要在代码里显式打印命中的数据库角色：
+    # 课程作业里“读写分离已经做了”远远不够，真正能打动老师的是你能证明：
+    # 1. 写请求确实打到了主库；
+    # 2. 读请求确实打到了从库；
+    # 3. 主从角色不是只存在于 docker-compose 里，而是落实到了运行时。
+    # 这个日志函数就是为了把“运行时证据”补齐。
+    bind = db.get_bind()
+    if bind is None:
+        return
+
+    if bind.dialect.name != "mysql":
+        # WARNING:
+        # 集成测试里会用 SQLite 跑最小链路，这些数据库没有 MySQL 的角色变量。
+        # 这里主动跳过，避免为了演示读写分离而破坏现有测试环境。
+        print(f"[DB ROUTING] operation={operation}, dialect={bind.dialect.name}, mode=single-database-test")
+        return
+
+    try:
+        row = db.execute(
+            text("SELECT @@hostname AS hostname, @@server_id AS server_id, @@read_only AS read_only")
+        ).mappings().first()
+        if not row:
+            return
+        role = "READ_REPLICA" if int(row["read_only"]) == 1 else "WRITE_PRIMARY"
+        print(
+            f"[DB ROUTING] operation={operation}, role={role}, "
+            f"host={row['hostname']}, server_id={row['server_id']}, read_only={row['read_only']}"
+        )
+    except Exception as exc:
+        # WARNING:
+        # 数据路由日志只负责“增强可观测性”，不应该反过来影响主业务。
+        # 就算这里查询实例角色失败，也不能让创建商品或查询商品直接报错。
+        print(f"[DB ROUTING] operation={operation}, status=failed-to-detect, reason={exc}")
+
+
 # 商品的创建接口
 @router.post("", response_model=ResponseModel[schemas.ProductResponse])
 def create_product(
     product: schemas.ProductCreate,
-    db: Session = Depends(database.get_db),
+    db: Session = Depends(database.get_write_db),
     user_id: str = Depends(get_current_user_id),
 ):
+    # 为什么创建商品必须强制走写库：
+    # 主从复制环境中，从库默认是只读的；即便强行放开，也会破坏主库是唯一事实源的原则。
+    # 所以凡是会改变数据的请求，都应明确依赖写库连接，而不是使用模糊的默认连接。
+    log_db_routing(db, "create_product")
     new_product = models.Product(**product.model_dump())
     db.add(new_product)
     db.commit()
@@ -282,19 +323,26 @@ def create_product(
 
 # 商品列表接口（简单分页查询）
 @router.get("", response_model=ResponseModel[List[schemas.ProductResponse]])
-def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
+def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_read_db)):
+    # 商品列表是最适合演示读写分离的接口之一：
+    # 1. 它天然是读请求；
+    # 2. 没有详情缓存命中带来的“看起来没有走数据库”的干扰；
+    # 3. 压测时请求量大，更容易观察从库承接读压力的效果。
+    log_db_routing(db, "get_products")
     products = db.query(models.Product).offset(skip).limit(limit).all()
     return success(data=products, message="成功获取商品列表")
 
 
 # 商品详情接口
 @router.get("/{product_id}", response_model=ResponseModel[schemas.ProductResponse])
-def get_product(product_id: str, db: Session = Depends(database.get_db)):
+def get_product(product_id: str, db: Session = Depends(database.get_read_db)):
     # 接口 3：获取单个商品详情 (点进商品详情页用)
     # 这条读链路同时承载了三类缓存治理：
     # 1. 穿透：先用存在性索引 + 空值缓存拦不存在商品；
     # 2. 击穿：热点 Key 失效时只允许一个请求回源；
     # 3. 雪崩：写缓存时统一加随机 TTL。
+    # 现在又额外叠加了一层读写分离：真正回源查库时，默认会命中从库。
+    # 这意味着缓存命中时读请求几乎不碰数据库，缓存未命中时也优先把读压力导向从库。
     cache_key = product_cache_key(product_id)
 
     # 第 1 步：优先读取缓存。
@@ -330,6 +378,7 @@ def get_product(product_id: str, db: Session = Depends(database.get_db)):
                 raise HTTPException(status_code=404, detail="商品不存在")
 
             print("缓存未命中，当前请求负责回源重建缓存")
+            log_db_routing(db, "get_product_cache_rebuild_read")
             product = query_product_from_db(product_id, db)
             if not product:
                 # 商品不存在时抛 404，写空值缓存和修正索引：
@@ -359,6 +408,7 @@ def get_product(product_id: str, db: Session = Depends(database.get_db)):
     # 分布式系统里不能把希望全部押在锁持有者一定成功写回缓存上。
     # 对方可能卡住、超时、进程崩溃，兜底分支是在异常情况下保证最终可用性。
     print("等待缓存回填超时，执行数据库兜底查询")
+    log_db_routing(db, "get_product_fallback_read")
     product = query_product_from_db(product_id, db)
     if not product:
         cache_empty_product(product_id)
@@ -376,4 +426,7 @@ def get_product(product_id: str, db: Session = Depends(database.get_db)):
     # 1. 写库后删缓存；
     # 2. 延迟双删；
     # 3. 订阅 binlog / MQ 做异步缓存同步。
+    # TODO:
+    # 如果后续把商品更新接口也纳入读写分离，需要同时处理“写主库成功但从库尚未追平”的复制延迟问题。
+    # 到那时，某些强一致读请求可能需要临时回主库，不能机械地把所有 GET 都交给从库。
     return success(data=product_dict, message="从数据库兜底获取成功")

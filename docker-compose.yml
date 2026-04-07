@@ -11,6 +11,67 @@ services:
     volumes:
       - db_data:/var/lib/mysql # 数据持久化，防止容器重启后数据丢失
 
+  # ==========================================
+  # 商品服务专用主库：负责所有写请求
+  # ==========================================
+  mysql-master:
+    image: mysql:8.0
+    container_name: flash-mysql-master
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 95515
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: flash_product_db
+    ports:
+      - "3307:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_master_data:/var/lib/mysql
+      - ./mysql_readwrite/master/conf.d/master.cnf:/etc/mysql/conf.d/master.cnf:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p95515"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ==========================================
+  # 商品服务专用从库：负责只读查询
+  # ==========================================
+  mysql-slave:
+    image: mysql:8.0
+    container_name: flash-mysql-slave
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 95515
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3308:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_slave_data:/var/lib/mysql
+      - ./mysql_readwrite/slave/conf.d/slave.cnf:/etc/mysql/conf.d/slave.cnf:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p95515"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ==========================================
+  # 主从复制初始化器：只负责执行一次复制配置
+  # ==========================================
+  mysql-replica-init:
+    image: mysql:8.0
+    container_name: flash-mysql-replica-init
+    restart: "no"
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+      mysql-slave:
+        condition: service_healthy
+    volumes:
+      - ./mysql_readwrite/scripts/init-replica.sh:/scripts/init-replica.sh:ro
+    entrypoint: ["bash", "/scripts/init-replica.sh"]
+
   flash-redis:
     image: redis:alpine
     container_name: flash-redis
@@ -45,13 +106,26 @@ services:
     deploy:
       replicas: 3 # 修改实例数量改这个数字就行
     environment:
-      # 注意：这里连的是同一个 mysql 容器，但是数据库名变成了 flash_product_db！
-      DATABASE_URL: mysql+pymysql://root:95515@mysql-db:3306/flash_product_db
+      # WARNING:
+      # 这里保留 DATABASE_URL 是为了兼容尚未完成读写分离改造的历史代码或脚本。
+      # 真正启用读写分离后，商品服务会优先使用 WRITE_DATABASE_URL 和 READ_DATABASE_URL。
+      DATABASE_URL: mysql+pymysql://root:95515@mysql-master:3306/flash_product_db
+      # 写请求固定走主库，保证创建商品等写操作命中真正的数据源。
+      WRITE_DATABASE_URL: mysql+pymysql://root:95515@mysql-master:3306/flash_product_db
+      # 读请求走从库，用来演示典型的读写分离效果。
+      READ_DATABASE_URL: mysql+pymysql://root:95515@mysql-slave:3306/flash_product_db
       SECRET_KEY: super_secret_key_for_flash_sale
       ALGORITHM: HS256
       REDIS_URL: redis://flash-redis:6379/0
     depends_on:
-      - mysql-db
+      mysql-master:
+        condition: service_healthy
+      mysql-slave:
+        condition: service_healthy
+      mysql-replica-init:
+        condition: service_completed_successfully
+      flash-redis:
+        condition: service_started
 
   order-service:
     image: raitocc66/flash-order-service:latest
@@ -106,3 +180,5 @@ services:
 
 volumes:
   db_data: # 声明数据卷
+  mysql_master_data:
+  mysql_slave_data:
